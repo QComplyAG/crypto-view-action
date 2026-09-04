@@ -1,0 +1,214 @@
+name: Crypto-View
+description: >-
+  Find every use of cryptography in a codebase and grade it against the quantum
+  threat. Uploads SARIF to code scanning, writes a job summary, and can report
+  to QComply.
+author: QComply AG
+
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  path:
+    description: Directory to scan.
+    required: false
+    default: "."
+  fail-on:
+    description: >-
+      Fail the job when a finding at this severity or worse is present:
+      none, critical, high, medium, low, info.
+    required: false
+    default: "none"
+  include:
+    description: Newline-separated globs; only paths matching are scanned.
+    required: false
+    default: ""
+  exclude:
+    description: Newline-separated globs to skip.
+    required: false
+    default: ""
+  sarif:
+    description: Where to write SARIF. Set upload-sarif false to keep it as an artifact only.
+    required: false
+    default: "crypto-view.sarif"
+  upload-sarif:
+    description: >-
+      Upload the SARIF to GitHub code scanning. Needs `security-events: write`,
+      and on a private repository it needs GitHub Advanced Security.
+    required: false
+    default: "true"
+  job-summary:
+    description: Write the inventory to the workflow run summary.
+    required: false
+    default: "true"
+  cbom:
+    description: Path to write a CycloneDX 1.7 CBOM to. Empty writes none.
+    required: false
+    default: ""
+  qcomply-token:
+    description: >-
+      QComply token. Pass a secret, never a literal. Supplying it is what turns
+      reporting on - there is no separate switch. Without it the scan is
+      entirely local and contacts nothing.
+    required: false
+    default: ""
+  qcomply-url:
+    description: QComply base URL, for a self-hosted deployment.
+    required: false
+    default: "https://app.qcomply.tech"
+  no-snippets:
+    description: Report findings to QComply without the matched source lines.
+    required: false
+    default: "false"
+  version:
+    description: Crypto-View version to run, or "latest".
+    required: false
+    default: "latest"
+
+outputs:
+  score:
+    description: Readiness score out of 100.
+    value: ${{ steps.scan.outputs.score }}
+  findings:
+    description: Total number of findings.
+    value: ${{ steps.scan.outputs.findings }}
+  actionable:
+    description: Findings that need a decision, excluding inventory.
+    value: ${{ steps.scan.outputs.actionable }}
+  hndl:
+    description: Findings that are key establishment, so exposed retrospectively.
+    value: ${{ steps.scan.outputs.hndl }}
+  sarif:
+    description: Path to the SARIF file.
+    value: ${{ steps.scan.outputs.sarif }}
+  cbom:
+    description: Path to the CBOM, if one was requested.
+    value: ${{ steps.scan.outputs.cbom }}
+
+runs:
+  using: composite
+  steps:
+    # Fetched from the action's own release rather than from our website, so
+    # the action does not stop working if our infrastructure does, and the
+    # checksum comes from the same release as the artifact.
+    - name: Install Crypto-View
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_PATH: ${{ github.action_path }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        target="$RUNNER_TEMP/crypto-view"
+        mkdir -p "$target"
+
+        # github.action_repository is empty when the action is referenced as a
+        # local path (uses: ./). This repository carries the action definition
+        # only - the engine arrives as a release asset - so there is nothing to
+        # run locally. Say that, rather than failing later on an import error
+        # that points at the wrong thing.
+        if [ -z "$ACTION_REPOSITORY" ]; then
+          echo "::error::Reference this action by tag (uses: QComplyAG/crypto-view-action@v1), not by path. This repository contains the action definition only; the scanner is downloaded from its releases."
+          exit 2
+        fi
+
+        if [ "$VERSION" = "latest" ]; then
+          tag=$(gh release view --repo "$ACTION_REPOSITORY" --json tagName -q .tagName)
+        else
+          tag="$VERSION"
+        fi
+        echo "Installing Crypto-View $tag from $ACTION_REPOSITORY"
+        gh release download "$tag" --repo "$ACTION_REPOSITORY" \
+          --pattern 'crypto-view.pyz' --pattern 'crypto-view.pyz.sha256' \
+          --dir "$target" --clobber
+        ( cd "$target" && sha256sum -c crypto-view.pyz.sha256 )
+        python3 "$target/crypto-view.pyz" --version
+        echo "CRYPTO_VIEW_CMD=python3 $target/crypto-view.pyz" >> "$GITHUB_ENV"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        # Through the environment, never the command line: an argument is
+        # visible in the process table and in a `set -x` trace.
+        QCOMPLY_TOKEN: ${{ inputs.qcomply-token }}
+        QCOMPLY_URL: ${{ inputs.qcomply-url }}
+        SCAN_PATH: ${{ inputs.path }}
+        SARIF: ${{ inputs.sarif }}
+        CBOM: ${{ inputs.cbom }}
+        INCLUDE: ${{ inputs.include }}
+        EXCLUDE: ${{ inputs.exclude }}
+        NO_SNIPPETS: ${{ inputs.no-snippets }}
+        JOB_SUMMARY: ${{ inputs.job-summary }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -uo pipefail
+        crypto_view="$CRYPTO_VIEW_CMD"
+        metrics="$RUNNER_TEMP/metrics.cbom.json"
+
+        args=("$SCAN_PATH" --no-color --quiet --sarif "$SARIF" --json "$metrics")
+        [ "$NO_SNIPPETS" = "true" ] && args+=(--no-snippets)
+        [ "$JOB_SUMMARY" = "true" ] && args+=(--markdown "$RUNNER_TEMP/summary.md")
+        [ "$FAIL_ON" != "none" ] && args+=(--fail-on "$FAIL_ON")
+        while IFS= read -r glob; do
+          [ -n "$glob" ] && args+=(--include "$glob")
+        done <<< "$INCLUDE"
+        while IFS= read -r glob; do
+          [ -n "$glob" ] && args+=(--exclude "$glob")
+        done <<< "$EXCLUDE"
+
+        # One scan, and the exit code carries the whole outcome:
+        #   0  clean            2  the scan could not run
+        #   1  the gate tripped 3  reporting failed, gate passed
+        # Every artifact is written before the gate is evaluated, so a failing
+        # gate still leaves the SARIF, the summary and the QComply report
+        # behind - which is exactly when they are wanted. Scanning a second
+        # time to apply the gate would double the cost of a large monorepo.
+        $crypto_view "${args[@]}"
+        status=$?
+
+        if [ "$status" -eq 2 ]; then
+          echo "::error::Crypto-View could not complete the scan"
+          exit 2
+        fi
+
+        if [ "$JOB_SUMMARY" = "true" ] && [ -f "$RUNNER_TEMP/summary.md" ]; then
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        if [ -n "$CBOM" ]; then
+          cp "$metrics" "$CBOM"
+        fi
+
+        python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import json, os
+        with open(os.environ["RUNNER_TEMP"] + "/metrics.cbom.json") as handle:
+            document = json.load(handle)
+        properties = {p["name"].split(":")[-1]: p["value"]
+                      for p in document["metadata"].get("properties", [])}
+        for name, key in (("score", "readinessScore"), ("findings", "findingsTotal"),
+                          ("actionable", "actionableTotal"), ("hndl", "hndlCount")):
+            print(f"{name}={properties.get(key, '0')}")
+        print(f"sarif={os.environ['SARIF']}")
+        print(f"cbom={os.environ.get('CBOM', '')}")
+        PY
+
+        if [ "$status" -eq 3 ]; then
+          echo "::error::the scan completed but reporting to QComply failed"
+          exit 1
+        fi
+        if [ "$status" -eq 1 ]; then
+          echo "::error::findings at or above '$FAIL_ON'"
+          exit 1
+        fi
+
+    # `always()` so the findings still reach the Security tab on a run the gate
+    # failed. A gate that hides the evidence for the failure helps nobody.
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif }}
+        category: crypto-view
