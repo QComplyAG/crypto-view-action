@@ -96,16 +96,6 @@ private repositories. Uploading SARIF to the Security tab does not — GitHub
 gates code scanning on Advanced Security. Set `upload-sarif: false` if you do
 not have it; nothing else changes.
 
-## Command line
-
-The same scanner runs outside CI, as one self-contained file needing only
-Python 3.9+:
-
-```bash
-curl -fsSL https://cryptoview.qcomply.tech/install.sh | sh
-crypto-view .
-```
-
 ## About this repository
 
 This repository holds the action definition. Each release carries
