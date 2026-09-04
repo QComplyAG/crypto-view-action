@@ -1,8 +1,7 @@
-name: Crypto-View
+name: Cryptography-View
 description: >-
   Find every use of cryptography in a codebase and grade it against the quantum
-  threat. Uploads SARIF to code scanning, writes a job summary, and can report
-  to QComply.
+  threat.
 author: QComply AG
 
 branding:
