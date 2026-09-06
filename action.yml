@@ -15,10 +15,35 @@ inputs:
     default: "."
   fail-on:
     description: >-
-      Fail the job when a finding at this severity or worse is present:
-      none, critical, high, medium, low, info.
+      What fails the job. A severity (critical, high, medium, low, info) still
+      means "this severity or worse". A selector gates on the kind of
+      cryptography instead: "hndl" for key establishment, "posture=broken",
+      "primitive=key-agree,kem", "algorithm=RSA", "kind=call", "language=java".
+      Terms in one line must all match; put alternatives on separate lines.
     required: false
     default: "none"
+  policy:
+    description: >-
+      Path to a policy file holding named gates and score thresholds, for rules
+      worth reviewing in a pull request.
+    required: false
+    default: ""
+  custom-rules:
+    description: >-
+      Path to this project's own declared cryptographic functions. Defaults to
+      crypto-view.custom.json in the scanned directory when present.
+    required: false
+    default: ""
+  baseline:
+    description: >-
+      Path to a baseline file. Only findings absent from it can fail the job,
+      so existing debt does not block a pipeline on day one.
+    required: false
+    default: ""
+  fail-under-score:
+    description: Fail the job when the readiness score is below this number.
+    required: false
+    default: "0"
   include:
     description: Newline-separated globs; only paths matching are scanned.
     required: false
@@ -142,6 +167,10 @@ runs:
         NO_SNIPPETS: ${{ inputs.no-snippets }}
         JOB_SUMMARY: ${{ inputs.job-summary }}
         FAIL_ON: ${{ inputs.fail-on }}
+        POLICY: ${{ inputs.policy }}
+        CUSTOM_RULES: ${{ inputs.custom-rules }}
+        BASELINE: ${{ inputs.baseline }}
+        FAIL_UNDER_SCORE: ${{ inputs.fail-under-score }}
       run: |
         set -uo pipefail
         crypto_view="$CRYPTO_VIEW_CMD"
@@ -150,7 +179,15 @@ runs:
         args=("$SCAN_PATH" --no-color --quiet --sarif "$SARIF" --json "$metrics")
         [ "$NO_SNIPPETS" = "true" ] && args+=(--no-snippets)
         [ "$JOB_SUMMARY" = "true" ] && args+=(--markdown "$RUNNER_TEMP/summary.md")
-        [ "$FAIL_ON" != "none" ] && args+=(--fail-on "$FAIL_ON")
+        # Each line of fail-on is one alternative; terms within a line all
+        # have to match. A bare severity still means "this severity or worse".
+        while IFS= read -r selector; do
+          [ -n "$selector" ] && [ "$selector" != "none" ] && args+=(--fail-on "$selector")
+        done <<< "$FAIL_ON"
+        [ -n "$POLICY" ] && args+=(--policy "$POLICY")
+        [ -n "$CUSTOM_RULES" ] && args+=(--custom-rules "$CUSTOM_RULES")
+        [ -n "$BASELINE" ] && args+=(--baseline "$BASELINE")
+        [ "${FAIL_UNDER_SCORE:-0}" != "0" ] && args+=(--fail-under-score "$FAIL_UNDER_SCORE")
         while IFS= read -r glob; do
           [ -n "$glob" ] && args+=(--include "$glob")
         done <<< "$INCLUDE"
@@ -199,7 +236,8 @@ runs:
           exit 1
         fi
         if [ "$status" -eq 1 ]; then
-          echo "::error::findings at or above '$FAIL_ON'"
+          # The scanner already printed which gate tripped and why, on stderr.
+          echo "::error::Crypto-View policy failed - see the log above for the gate that tripped"
           exit 1
         fi
 
