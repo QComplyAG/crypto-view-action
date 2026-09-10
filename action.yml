@@ -129,6 +129,11 @@ runs:
         target="$RUNNER_TEMP/crypto-view"
         mkdir -p "$target"
 
+        # --- local-path branch: the ONE part of this file that differs between
+        # --- QComplyAG/crypto-view-action and QComplyAG/crypto-view. Everything
+        # --- outside these markers is identical in both, and
+        # --- crypto-view/tests/test_action_definition.py enforces that.
+        #
         # github.action_repository is empty when the action is referenced as a
         # local path (uses: ./). This repository carries the action definition
         # only - the engine arrives as a release asset - so there is nothing to
@@ -138,6 +143,7 @@ runs:
           echo "::error::Reference this action by tag (uses: QComplyAG/crypto-view-action@v1), not by path. This repository contains the action definition only; the scanner is downloaded from its releases."
           exit 2
         fi
+        # --- end local-path branch ---
 
         if [ "$VERSION" = "latest" ]; then
           tag=$(gh release view --repo "$ACTION_REPOSITORY" --json tagName -q .tagName)
