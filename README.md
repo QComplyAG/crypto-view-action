@@ -195,7 +195,9 @@ Uploading SARIF to the Security tab needs GitHub Advanced Security on private
 repositories. Set `upload-sarif: false` if you do not have it; nothing else
 changes.
 
-Pin `@v1` for the current major version, or a full tag like `@v5.2.0`.
+Pin `@v1` for the current major version, or a full release tag such as
+`@v5.8.0` when a build has to be reproducible - `@v1` moves with each release
+and a version tag does not.
 
 ## Licence
 

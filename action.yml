@@ -54,7 +54,9 @@ inputs:
     required: false
     default: ""
   sarif:
-    description: Where to write SARIF. Set upload-sarif false to keep it as an artifact only.
+    description: >-
+      Where to write SARIF 2.1.0. Set upload-sarif false to keep it as an
+      artifact only, or set this to "" to write none at all.
     required: false
     default: "crypto-view.sarif"
   upload-sarif:
@@ -105,7 +107,7 @@ outputs:
     description: Findings that are key establishment, so exposed retrospectively.
     value: ${{ steps.scan.outputs.hndl }}
   sarif:
-    description: Path to the SARIF file.
+    description: Path to the SARIF file, if one was written.
     value: ${{ steps.scan.outputs.sarif }}
   cbom:
     description: Path to the CBOM, if one was requested.
@@ -183,7 +185,11 @@ runs:
         crypto_view="$CRYPTO_VIEW_CMD"
         metrics="$RUNNER_TEMP/metrics.cbom.json"
 
-        args=("$SCAN_PATH" --no-color --quiet --sarif "$SARIF" --json "$metrics")
+        args=("$SCAN_PATH" --no-color --quiet --json "$metrics")
+        # Only when one was asked for. `sarif: ""` used to reach the scanner as
+        # `--sarif ""`, which writes nothing and then fails the upload step on a
+        # path that does not exist.
+        [ -n "$SARIF" ] && args+=(--sarif "$SARIF")
         [ "$NO_SNIPPETS" = "true" ] && args+=(--no-snippets)
         [ "$JOB_SUMMARY" = "true" ] && args+=(--markdown "$RUNNER_TEMP/summary.md")
         # Each line of fail-on is one alternative; terms within a line all
@@ -234,7 +240,11 @@ runs:
         for name, key in (("score", "readinessScore"), ("findings", "findingsTotal"),
                           ("actionable", "actionableTotal"), ("hndl", "hndlCount")):
             print(f"{name}={properties.get(key, '0')}")
-        print(f"sarif={os.environ['SARIF']}")
+        # The path only if a file is actually there. It was printed
+        # unconditionally, so the output was a claim about a path rather than a
+        # produced artifact, and a consumer had no way to tell the difference.
+        sarif = os.environ.get("SARIF", "")
+        print(f"sarif={sarif if sarif and os.path.exists(sarif) else ''}")
         print(f"cbom={os.environ.get('CBOM', '')}")
         PY
 
@@ -251,8 +261,10 @@ runs:
     # `always()` so the findings still reach the Security tab on a run the gate
     # failed. A gate that hides the evidence for the failure helps nobody.
     - name: Upload SARIF
-      if: ${{ inputs.upload-sarif == 'true' && always() }}
+      if: ${{ inputs.upload-sarif == 'true' && always() && steps.scan.outputs.sarif != '' }}
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: ${{ inputs.sarif }}
+        # The verified output, not the input: it is empty unless a file was
+        # actually written, which is what the `if:` above keys on.
+        sarif_file: ${{ steps.scan.outputs.sarif }}
         category: crypto-view
