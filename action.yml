@@ -15,11 +15,12 @@ inputs:
     default: "."
   fail-on:
     description: >-
-      What fails the job. A severity (critical, high, medium, low, info) still
-      means "this severity or worse". A selector gates on the kind of
-      cryptography instead: "hndl" for key establishment, "posture=broken",
-      "primitive=key-agree,kem", "algorithm=RSA", "kind=call", "language=java".
-      Terms in one line must all match; put alternatives on separate lines.
+      What fails the job. A selector gates on the kind of cryptography: "hndl"
+      for key establishment, "posture=broken,vulnerable", "primitive=key-agree,kem",
+      "algorithm=RSA", "kind=call", "language=java". Terms in one line must all
+      match; put alternatives on separate lines. Crypto-View no longer reports a
+      critical/high/medium/low rating, but a workflow written against one still
+      works.
     required: false
     default: "none"
   policy:
@@ -180,7 +181,7 @@ runs:
         [ "$NO_SNIPPETS" = "true" ] && args+=(--no-snippets)
         [ "$JOB_SUMMARY" = "true" ] && args+=(--markdown "$RUNNER_TEMP/summary.md")
         # Each line of fail-on is one alternative; terms within a line all
-        # have to match. A bare severity still means "this severity or worse".
+        # have to match. A bare severity from a pre-5.7.0 workflow still works.
         while IFS= read -r selector; do
           [ -n "$selector" ] && [ "$selector" != "none" ] && args+=(--fail-on "$selector")
         done <<< "$FAIL_ON"

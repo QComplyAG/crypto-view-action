@@ -24,8 +24,7 @@ any language. The full list is at
 
 ## Failing the build
 
-`fail-on` takes a **severity**, or a **selector** that gates on the kind of
-cryptography.
+`fail-on` takes a **selector** that gates on the kind of cryptography.
 
 ```yaml
       - uses: QComplyAG/crypto-view-action@v1
@@ -33,10 +32,10 @@ cryptography.
           fail-on: hndl posture=vulnerable
 ```
 
-That one fails on quantum-vulnerable key establishment and nothing else —
+That one fails on quantum-vulnerable key establishment and nothing else -
 recorded traffic is decrypted retrospectively once the algorithm falls, so it is
-the finding that cannot wait. A vulnerable *signature* of the same severity does
-not block the build.
+the finding that cannot wait. A vulnerable *signature* with the same posture
+does not block the build.
 
 | Selector | Matches |
 |---|---|
@@ -47,11 +46,14 @@ not block the build.
 | `algorithm=RSA,ECDH` | By algorithm |
 | `kind=call` | Call sites only, ignoring imports and dependencies |
 | `language=java` | By language |
-| `severity>=high` | That severity or worse |
-| `high` | The same thing, spelled the old way |
+
+Crypto-View reported a critical/high/medium/low rating until 5.7.0 and no
+longer does: posture says both what an algorithm is and how urgent it is. A
+workflow written against the old rating (`fail-on: high`, `severity>=high`)
+still gates exactly as it did, so nothing has to change.
 
 Terms on one line must **all** match the same finding. Put alternatives on
-separate lines — any one of them fails the build:
+separate lines - any one of them fails the build:
 
 ```yaml
           fail-on: |
@@ -112,7 +114,7 @@ entries from the baseline as they are fixed.
 A codebase that wraps its cryptography in `my_own_crypto()` is invisible to a
 scanner that only knows library APIs. Declare your own functions in
 **`crypto-view.custom.json`** at the root of the scanned directory and they are
-picked up automatically — no workflow change:
+picked up automatically - no workflow change:
 
 ```json
 {
@@ -124,7 +126,6 @@ picked up automatically — no workflow change:
       "language": "python",
       "quantum_safe": false,
       "primitive": "kem",
-      "severity": "high",
       "symbols": ["my_own_crypto", "crypto_utils.wrap_key"],
       "description": "In-house key wrapping built on RSA-2048.",
       "remediation": "Use ML-KEM-768 through the platform crypto service."
@@ -135,7 +136,7 @@ picked up automatically — no workflow change:
 
 Every call site is reported like any catalogue finding, in the terminal, the
 SARIF and the CBOM. Because `primitive` is `kem`, this one counts as key
-establishment — so it trips `fail-on: hndl` exactly as `ECDH` would.
+establishment - so it trips `fail-on: hndl` exactly as `ECDH` would.
 
 | Field | |
 |---|---|
@@ -145,7 +146,7 @@ establishment — so it trips `fail-on: hndl` exactly as `ECDH` would.
 | `quantum_safe` | Required unless `posture` is given. `false` → vulnerable, `true` → safe |
 | `posture` | `vulnerable`, `broken`, `reduced`, `safe`, `unknown` |
 | `primitive` | `kem`, `key-agree`, `signature`, `block-cipher`, `hash`, `mac`, `kdf`, … |
-| `severity` | `critical`…`info`. Defaults to `high`, or `info` when safe |
+| `severity` | Optional weight for the readiness score only. Not reported against a finding |
 | `language` | `java`, `python`, `javascript`, `go`, `any`. Defaults to `any` |
 | `patterns` | Regexes, if the symbol names are not enough |
 | `hndl` | Override whether this exposes recorded traffic |
@@ -198,4 +199,4 @@ Pin `@v1` for the current major version, or a full tag like `@v5.2.0`.
 
 ## Licence
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 - see [LICENSE](LICENSE).
