@@ -81,13 +81,12 @@ a name and a message, and the developer sees both when it trips.
       "message": "Recorded traffic is exposed retrospectively. See ARCH-412."
     },
     { "name": "No broken primitives", "when": ["posture=broken"] }
-  ],
-  "score": { "min": 70, "max_drop": 5 }
+  ]
 }
 ```
 
-`score.min` is a floor. `score.max_drop` fails when the score falls further than
-this against a baseline.
+Every gate names what it found and why it matters, so a developer reads the
+rule they crossed rather than an exit code.
 
 ### Adopting on an existing codebase
 
@@ -146,7 +145,7 @@ establishment - so it trips `fail-on: hndl` exactly as `ECDH` would.
 | `quantum_safe` | Required unless `posture` is given. `false` → vulnerable, `true` → safe |
 | `posture` | `vulnerable`, `broken`, `reduced`, `safe`, `unknown` |
 | `primitive` | `kem`, `key-agree`, `signature`, `block-cipher`, `hash`, `mac`, `kdf`, … |
-| `severity` | Optional weight for the readiness score only. Not reported against a finding |
+| `severity` | Optional. Used by `--fail-on severity=…` only; not reported against a finding |
 | `language` | `java`, `python`, `javascript`, `go`, `any`. Defaults to `any` |
 | `patterns` | Regexes, if the symbol names are not enough |
 | `hndl` | Override whether this exposes recorded traffic |
@@ -163,7 +162,6 @@ Use `custom-rules:` to point at a different path.
 | `policy` | | Path to a policy file |
 | `custom-rules` | | Path to declared functions |
 | `baseline` | | Only fail on findings absent from this file |
-| `fail-under-score` | `0` | Fail below this readiness score |
 | `include` / `exclude` | | Newline-separated globs |
 | `sarif` | `crypto-view.sarif` | Where to write SARIF |
 | `upload-sarif` | `true` | Upload to code scanning |
@@ -176,12 +174,12 @@ Use `custom-rules:` to point at a different path.
 
 ## Outputs
 
-`score`, `findings`, `actionable`, `hndl`, `sarif`, `cbom`.
+`findings`, `actionable`, `hndl`, `sarif`, `cbom`.
 
 ```yaml
       - uses: QComplyAG/crypto-view-action@v1
         id: scan
-      - run: echo "score ${{ steps.scan.outputs.score }}"
+      - run: echo "${{ steps.scan.outputs.actionable }} to address"
 ```
 
 ## Notes

@@ -25,8 +25,8 @@ inputs:
     default: "none"
   policy:
     description: >-
-      Path to a policy file holding named gates and score thresholds, for rules
-      worth reviewing in a pull request.
+      Path to a policy file holding named gates, for rules worth reviewing in
+      a pull request.
     required: false
     default: ""
   custom-rules:
@@ -41,10 +41,6 @@ inputs:
       so existing debt does not block a pipeline on day one.
     required: false
     default: ""
-  fail-under-score:
-    description: Fail the job when the readiness score is below this number.
-    required: false
-    default: "0"
   include:
     description: Newline-separated globs; only paths matching are scanned.
     required: false
@@ -94,9 +90,6 @@ inputs:
     default: "latest"
 
 outputs:
-  score:
-    description: Readiness score out of 100.
-    value: ${{ steps.scan.outputs.score }}
   findings:
     description: Total number of findings.
     value: ${{ steps.scan.outputs.findings }}
@@ -179,7 +172,6 @@ runs:
         POLICY: ${{ inputs.policy }}
         CUSTOM_RULES: ${{ inputs.custom-rules }}
         BASELINE: ${{ inputs.baseline }}
-        FAIL_UNDER_SCORE: ${{ inputs.fail-under-score }}
       run: |
         set -uo pipefail
         crypto_view="$CRYPTO_VIEW_CMD"
@@ -200,7 +192,6 @@ runs:
         [ -n "$POLICY" ] && args+=(--policy "$POLICY")
         [ -n "$CUSTOM_RULES" ] && args+=(--custom-rules "$CUSTOM_RULES")
         [ -n "$BASELINE" ] && args+=(--baseline "$BASELINE")
-        [ "${FAIL_UNDER_SCORE:-0}" != "0" ] && args+=(--fail-under-score "$FAIL_UNDER_SCORE")
         while IFS= read -r glob; do
           [ -n "$glob" ] && args+=(--include "$glob")
         done <<< "$INCLUDE"
@@ -237,7 +228,7 @@ runs:
             document = json.load(handle)
         properties = {p["name"].split(":")[-1]: p["value"]
                       for p in document["metadata"].get("properties", [])}
-        for name, key in (("score", "readinessScore"), ("findings", "findingsTotal"),
+        for name, key in (("findings", "findingsTotal"),
                           ("actionable", "actionableTotal"), ("hndl", "hndlCount")):
             print(f"{name}={properties.get(key, '0')}")
         # The path only if a file is actually there. It was printed
